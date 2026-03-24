@@ -16,6 +16,9 @@ jobs:
       - name: pull to vm
         uses: actions/checkout@v6
 
+      - name: give permissions
+        run: chmod +x gradlew
+
       - name: run test cases
         run: ./gradlew build
 
