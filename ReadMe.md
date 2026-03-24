@@ -1,240 +1,429 @@
 # SmartParkingLot — Parking Lot LLD and API (Spring Boot + Spring Data JPA)
 
-This repository contains a Low-Level Design (LLD) implementation and REST API for a Parking Lot system built with Spring Boot and Spring Data JPA. The code demonstrates data modeling and schema design, layered architecture (controllers/services/repositories), DTO mapping, validation, exception handling, and integration testing.
+Swagger documentation: http://localhost:8080/docs
 
-This README summarizes the main concepts and functions you learned while implementing the project and documents the APIs and how to run and test the application.
-
----
-
-## Table of Contents
-
-- Project overview
-- Key concepts & patterns learned
-- Architecture & package structure
-- Domain model & schema design
-- CRUD APIs (ParkingLot, ParkingFloor, ParkingSlot)
-- DTOs, Controllers, Services, Repositories
-- Transactions, concurrency & occupancy logic
-- Testing strategy (unit + integration)
-- Running the application and tests
-- Troubleshooting & common errors
-- Notes and next steps
+This README lists the exact properties of the entities implemented in the codebase. Fields inherited from `AbstractBase` (present on every entity) are listed first.
 
 ---
 
-## Project overview
-
-This project models a parking lot consisting of:
-- ParkingLot: top-level container (name, address, floors)
-- ParkingFloor: floor within a parking lot (name, level, slots)
-- ParkingSlot: individual parking slot (type, occupied status, identifiers)
-
-Main features implemented:
-- CRUD operations for ParkingLot, ParkingFloor and ParkingSlot
-- REST API endpoints (Spring Web)
-- Persistence with Spring Data JPA and Hibernate
-- DTO-based request/response mapping
-- Integration tests for controllers
-- H2 in-memory DB for tests / local development
+Common inherited fields (from `AbstractBase`)
+- id: Long (primary key, generated)
+- createdAt: LocalDateTime (audited)
+- updatedAt: LocalDateTime (audited)
 
 ---
 
-## Key concepts & patterns learned
+Entities and exact properties (as implemented)
 
-- Spring Boot application structure and boot lifecycle
-- Spring MVC and REST controllers (`@RestController`, routing, status codes)
-- Dependency injection: constructor injection (Spring will auto-wire a single constructor without `@Autowired`)
-- Spring Data JPA repositories (`JpaRepository`) for CRUD
-- JPA entity relationships: `@OneToMany`, `@ManyToOne`, owning side, cascade rules, `fetch` strategies
-- Schema design and normalization to model hierarchical data (lot -> floors -> slots)
-- DTOs for API boundary (decouple entity from API contract)
-- Service layer for business logic, transactions, and validations
-- Exception handling with `@ControllerAdvice` and custom exceptions for meaningful HTTP responses
-- Integration testing with Spring Boot Test (`@SpringBootTest` + `@AutoConfigureMockMvc`), including H2 DB
-- Writing tests that verify state transitions (e.g., setting slot occupied/unoccupied when issuing/closing ticket)
-- Basic concurrency considerations (optimistic locking or transactional semantics can be added later)
+1) ParkingLot
+- Inherited: id, createdAt, updatedAt
+- parkingFloorList: List<ParkingFloor> (OneToMany, cascade = ALL)
+- entries: List<EntryGate> (OneToMany, cascade = ALL)
+- exits: List<ExitGate> (OneToMany, cascade = ALL)
 
----
+Sample JSON (ParkingLot instance):
+{
+  "id": 1,
+  "parkingFloorList": [],
+  "entries": [],
+  "exits": [],
+  "createdAt": "2026-03-24T10:00:00",
+  "updatedAt": "2026-03-24T10:00:00"
+}
 
-## Architecture & package structure (high-level)
+Note: There are no `name` or `address` fields on `ParkingLot` in the code; the entity contains the collections above.
 
-- `org.airtribe` (root package)
-  - `controllers` — REST controllers for ParkingLot, ParkingFloor, ParkingSlot, Ticket endpoints
-  - `services` — business logic and transaction boundaries
-  - `repository` — Spring Data JPA repositories
-  - `entities` — JPA entity classes and relationships
-  - `dto` — request/response DTOs and mapping helpers
-  - `exception` — custom exceptions and global exception handler
-  - `factory` / `strategy` — supporting patterns used for ticket generation / pricing (if present)
+2) ParkingFloor
+- Inherited: id, createdAt, updatedAt
+- parkingSlotList: List<ParkingSlot> (OneToMany, cascade = ALL)
+- parkingLot: ParkingLot (ManyToOne, JsonIgnored)
 
-This separation enforces single responsibility and makes controllers thin while services hold core logic.
+Sample JSON (ParkingFloor instance):
+{
+  "id": 10,
+  "parkingSlotList": [],
+  "createdAt": "2026-03-24T10:05:00",
+  "updatedAt": "2026-03-24T10:05:00"
+}
 
----
+3) ParkingSlot
+- Inherited: id, createdAt, updatedAt
+- slotType: VehicleType (Enum: BIKE, CAR, TRUCK) — stored as STRING
+- occupied: boolean
+- floorNo: ParkingFloor (ManyToOne, JoinColumn `floor_id`, JsonIgnored, NotNull)
 
-## Domain model & schema design
+Sample JSON (ParkingSlot instance):
+{
+  "id": 100,
+  "slotType": "CAR",
+  "occupied": false,
+  "createdAt": "2026-03-24T10:06:00",
+  "updatedAt": "2026-03-24T10:06:00"
+}
 
-Primary entities and relationships:
+4) Vehicle
+- Inherited: id, createdAt, updatedAt
+- vehicleType: VehicleType (Enum: BIKE, CAR, TRUCK) — stored as STRING
+- vehicleNo: String (unique, not-null)
 
-- ParkingLot (id, name, address, List<ParkingFloor>)
-  - One-to-Many relationship to `ParkingFloor`
-  - Cascade type depends on whether you want floors removed with the lot; typically `CascadeType.ALL` for full ownership.
+Sample JSON (Vehicle instance):
+{
+  "id": 200,
+  "vehicleType": "CAR",
+  "vehicleNo": "KA-01-AB-1234",
+  "createdAt": "2026-03-24T11:00:00",
+  "updatedAt": "2026-03-24T11:00:00"
+}
 
-- ParkingFloor (id, name, level, parkingLot, List<ParkingSlot>)
-  - Many-to-One to `ParkingLot`
-  - One-to-Many to `ParkingSlot`
+5) Ticket
+- Inherited: id, createdAt, updatedAt
+- slot: ParkingSlot (ManyToOne, cascade = MERGE)
+- vehicle: Vehicle (ManyToOne, cascade = PERSIST)
+- entryTime: LocalDateTime
+- exitTime: LocalDateTime (nullable)
+- bill: Bill (OneToOne mappedBy = "ticket", cascade = ALL)
+- isActive: boolean (default true)
 
-- ParkingSlot (id, code, type, occupied, parkingFloor)
-  - Many-to-One to `ParkingFloor`
-  - Fields: `occupied` boolean, `slotType` enum (e.g., COMPACT, LARGE, HANDICAPPED), `identifier` or `code`
+Sample JSON (Ticket instance):
+{
+  "id": 500,
+  "slot": { "id":100 },
+  "vehicle": { "id":200 },
+  "entryTime": "2026-03-24T11:30:00",
+  "exitTime": null,
+  "bill": null,
+  "isActive": true,
+  "createdAt": "2026-03-24T11:30:00",
+  "updatedAt": "2026-03-24T11:30:00"
+}
 
-Important schema decisions:
-- Use surrogate primary keys (Long `id`) for simplicity.
-- Model ownership so deleting a floor may cascade to slots (choose cascade appropriately).
-- Consider constraints: unique slot code per floor, non-nullable `occupied` default `false`.
+6) Bill
+- Inherited: id, createdAt, updatedAt
+- ticket: Ticket (OneToOne, JoinColumn `ticket_id`, JsonIgnored)
+- cost: double
 
----
+Sample JSON (Bill instance):
+{
+  "id": 900,
+  "cost": 20.0,
+  "createdAt": "2026-03-24T13:45:00",
+  "updatedAt": "2026-03-24T13:45:00"
+}
 
-## API: CRUD endpoints (summary)
+7) EntryGate
+- Inherited: id, createdAt, updatedAt
+- gateNo: Long
+- gateName: String
+- isActive: boolean (default true)
+- parkingLot: ParkingLot (ManyToOne)
 
-This project exposes RESTful CRUD endpoints for the three core resources. Example routes (conventions used in this project):
+Sample JSON (EntryGate instance):
+{
+  "id": 300,
+  "gateNo": 1,
+  "gateName": "Main Entry",
+  "isActive": true,
+  "createdAt": "2026-03-24T09:00:00",
+  "updatedAt": "2026-03-24T09:00:00"
+}
 
-ParkingLot
-- GET /api/parking-lots — list all parking lots
-- GET /api/parking-lots/{id} — get a parking lot
-- POST /api/parking-lots — create a parking lot
-- PUT /api/parking-lots/{id} — update a parking lot
-- DELETE /api/parking-lots/{id} — delete a parking lot
+8) ExitGate
+- Inherited: id, createdAt, updatedAt
+- gateNo: Long
+- gateName: String
+- isActive: boolean (default true)
+- parkingLot: ParkingLot (ManyToOne)
 
-ParkingFloor
-- GET /api/parking-floors — list all floors
-- GET /api/parking-floors/{id} — get a floor
-- POST /api/parking-lots/{lotId}/parking-floors — create a floor inside a lot
-- PUT /api/parking-floors/{id} — update a floor
-- DELETE /api/parking-floors/{id} — delete a floor
-
-ParkingSlot
-- GET /api/parking-slots — list slots (query params for floorId or type)
-- GET /api/parking-slots/{id} — get slot by id
-- POST /api/parking-floors/{floorId}/parking-slots — create a slot on a floor
-- PUT /api/parking-slots/{id} — update a slot (e.g., mark occupied/unoccupied)
-- DELETE /api/parking-slots/{id} — delete a slot
-
-Notes:
-- The service layer should validate that parent entities exist when creating children (e.g., ensure `ParkingFloor` belongs to an existing `ParkingLot`).
-- For ticketing flows, marking a `ParkingSlot.occupied` to `true` on entry and `false` on exit is required.
-
----
-
-## DTOs, Controllers, Services, Repositories
-
-- DTOs: Accept incoming JSON via request DTOs and return response DTOs. Map to/from entities in services or using mapper utilities.
-  - Example: `ParkingSlotRequestDto { String code; String slotType; }` and `ParkingSlotResponseDto { Long id; String code; boolean occupied; }`.
-
-- Controllers (`@RestController`): Keep controllers thin — map requests to DTOs, call service methods, and return appropriate HTTP responses.
-  - Use `@Valid` for request validation and `@ResponseStatus` for explicit status codes.
-
-- Services (`@Service`): Contain business operations and transaction boundaries. Use constructor injection:
-  - e.g., `public class ParkingLotService { private final ParkingLotRepository repo; public ParkingLotService(ParkingLotRepository repo) { this.repo = repo; } }`
-  - Spring auto-injects the single constructor; you don't need `@Autowired` (Spring 4.3+).
-
-- Repositories (`@Repository` + extends `JpaRepository<Entity, Long>`): Provide CRUD and query methods (e.g., findByFloorIdAndOccupiedFalse).
-
----
-
-## Transactions, concurrency & occupancy logic
-
-- Mark service methods that mutate multiple entities as `@Transactional` to ensure ACID semantics.
-- When allocating a slot for entry, ensure you find and update an available slot atomically.
-  - Strategies: Pessimistic locking (SELECT ... FOR UPDATE) or optimistic locking (`@Version`), depending on load.
-- Example exit flow: retrieve ticket, set `ticket.getSlot().setOccupied(false)`, and save the slot and ticket state within the same transaction.
-
----
-
-## Testing strategy
-
-- Unit tests for services and repositories where applicable.
-- Integration tests for controllers using `@SpringBootTest` or `@WebMvcTest` + `MockMvc`.
-  - Tests cover happy paths and edge cases: creating entities, validation failures (400), not found (404), and state changes such as freeing a slot on exit.
-- Example integration test to check exit flow:
-  - Create a lot, floor, slot, create a ticket that occupies the slot, then call exit endpoint and assert `ticket.getSlot().isOccupied() == false` after the flow completes.
-
----
-
-## Running the application and tests
-
-Prerequisites: Java 17+ (or the JDK configured for the project), Gradle wrapper is included.
-
-From Windows `cmd.exe` in repo root:
-
-- Build and run tests:
-
-    gradlew.bat test
-
-- Run the application locally:
-
-    gradlew.bat bootRun
-
-- Or build a runnable jar:
-
-    gradlew.bat clean bootJar
-    java -jar build/libs/SmartParkingLot-1.0-SMARTPARKINGLOT.jar
-
-The application runs on port 8080 by default. You can configure properties in `src/main/resources/application.properties`.
+Sample JSON (ExitGate instance):
+{
+  "id": 400,
+  "gateNo": 1,
+  "gateName": "Main Exit",
+  "isActive": true,
+  "createdAt": "2026-03-24T09:00:00",
+  "updatedAt": "2026-03-24T09:00:00"
+}
 
 ---
 
-## H2 console & troubleshooting
+Endpoints (controllers)
 
-- To enable H2 console, ensure your `application.properties` contains:
+ParkingLotController (`/parkingLots`)
+- POST /parkingLots
+  - Body: `ParkingLot` JSON (entity with collections)
+  - Behavior: create a new `ParkingLot` entity. Returns 201 Created with the persisted `ParkingLot`.
 
-    spring.h2.console.enabled=true
-    spring.h2.console.path=/h2-console
+- GET /parkingLots
+  - Behavior: return all `ParkingLot` entities. Returns 200 OK with a list.
 
-- If you see a 404 when visiting `http://localhost:8080/h2-console`:
-  - Verify the application is running and bound to port 8080.
-  - Confirm `spring.h2.console.enabled=true` in the active profile's properties.
-  - Ensure no web security configuration blocks the `/h2-console` path (Spring Security may block it by default).
+- GET /parkingLots/{id}
+  - Behavior: return the `ParkingLot` with the given id. Returns 200 OK or 404 if not found.
 
-- Hibernate dialect issues (example error: `Unable to load class [org.hibernate.dialect.MySQL8Dialect]`):
-  - This usually means the version of Hibernate in the classpath differs from the dialect class name you're using. Fixes:
-    - Use a dialect class appropriate to your Hibernate version (e.g., `org.hibernate.dialect.MySQL8Dialect` is available in modern Hibernate versions). If using an older Hibernate, try `org.hibernate.dialect.MySQLDialect`.
-    - Ensure the Hibernate/JPA dependencies are present and compatible (check `build.gradle` dependencies).
+- PUT /parkingLots/{id}
+  - Body: `ParkingLot` JSON (updated fields)
+  - Behavior: update the `ParkingLot` with the given id. Returns 200 OK with the updated entity.
+
+- DELETE /parkingLots/{id}
+  - Behavior: delete the `ParkingLot` with the given id. Returns 204 No Content.
+
+ParkingFloorController (`/parkingFloors`)
+- POST /parkingFloors?parkingLotId={parkingLotId}
+  - Query param: `parkingLotId` (Long) — parent lot id
+  - Body: `ParkingFloor` JSON (entity)
+  - Behavior: create a `ParkingFloor` associated with the `ParkingLot` identified by `parkingLotId`. Returns 201 Created with the persisted `ParkingFloor`.
+
+- GET /parkingFloors
+  - Behavior: list all floors. Returns 200 OK with a list.
+
+- GET /parkingFloors/{id}
+  - Behavior: return a single floor by id. Returns 200 OK or 404 if not found.
+
+- PUT /parkingFloors/{id}
+  - Body: `ParkingFloor` JSON (updated fields)
+  - Behavior: update the specified floor. Returns 200 OK with updated entity.
+
+- DELETE /parkingFloors/{id}
+  - Behavior: delete the specified floor. Returns 204 No Content.
+
+ParkingSlotController (`/parkingSlots`)
+- POST /parkingSlots?floorId={floorId}&slotType={VehicleType}&occupied={boolean}
+  - Query params:
+    - `floorId` (Long) — required: the parent floor id
+    - `slotType` (VehicleType) — required: one of BIKE, CAR, TRUCK
+    - `occupied` (boolean) — optional, default false
+  - Behavior: create a `ParkingSlot` for the specified floor with given vehicle type and occupancy state. Returns 201 Created with the persisted `ParkingSlot`.
+
+- GET /parkingSlots
+  - Behavior: return all parking slots. Returns 200 OK with a list.
+
+- GET /parkingSlots/{id}
+  - Behavior: return parking slot by id. Returns 200 OK or 404 if not found.
+
+- PATCH /parkingSlots/{id}?slotType={slotType}&occupied={occupied}
+  - Query params (optional): `slotType` (String), `occupied` (Boolean)
+  - Behavior: update slotType and/or occupied state for the given slot id. Returns 200 OK with updated `ParkingSlot`.
+
+- DELETE /parkingSlots/{id}
+  - Behavior: delete the specified slot. Returns 204 No Content.
+
+EntryController (`/entry`)
+- POST /entry?strategy={strategy}
+  - Query param: `strategy` (String) — allocation strategy; default `NEAREST`. Supported values in code: `NEAREST`, `FIRST_AVAILABLE`.
+  - Body: `VehicleDto` JSON:
+    {
+      "vehicleType": "CAR",
+      "vehicleNo": "KA-01-AB-1234"
+    }
+  - Behavior: generates a `Ticket` for the incoming vehicle using the requested allocation strategy. The ticket generation uses DB locking to ensure thread-safe allocation. Returns 201 Created with the `Ticket` entity (includes reference to allocated `slot` and `vehicle`).
+
+ExitController (`/exit`)
+- POST /exit?strategy={strategy}
+  - Query param: `strategy` (String) — billing strategy; default `HOURLY`.
+  - Body: `VehicleDto` JSON (same as entry)
+  - Behavior: calculates cost and generates a `Bill` for the vehicle's active ticket using the chosen billing strategy (e.g., `HOURLY` maps to `HourlyPriceCalculation`). The service closes the ticket, persists the `Bill`, and frees the associated `ParkingSlot` (sets `occupied = false`). Returns 202 Accepted with the `Bill` entity.
+
+HomeController
+- (If present) the `HomeController` exposes application-level endpoints (e.g., root) — check the controller for specifics. If not used for API flows, it typically returns basic info or health check.
 
 ---
 
-## Common HTTP status responses you saw and why
-
-- 400 Bad Request: Usually caused by failing validation on request DTOs (`@Valid`) or malformed JSON. Check controller method signatures and validation annotations.
-- 404 Not Found: When a resource or endpoint is missing (e.g., trying to hit `/h2-console` when disabled or resource id not present).
-- 500 / non-zero exit from Gradle JavaExec: The application threw an exception on startup; check logs for root cause.
-
----
-
-## Git / repo hygiene
-
-- A `.gitignore` has been added/updated to exclude build artifacts, IDE files, DB files and secrets. If you already have secrets or generated files tracked, untrack them locally:
-
-    git rm -r --cached .
-    git add .
-    git commit -m "Apply updated .gitignore"
-
-- If secrets were committed historically, consider removing them from history with BFG or `git filter-branch` (requires coordination for force-pushes).
+Notes
+- All controllers use constructor or field injection as implemented in code (`ParkingLotController`, `ParkingFloorController`, `ParkingSlotController` use constructor injection; `EntryController` and `ExitController` use `@Autowired` field injection for `TicketService`).
+- Validation and exceptions: controllers rely on service-layer validations and throw appropriate exceptions (e.g., `NoSlotFoundException`) which should be handled by global exception handlers (see `org.airtribe.exception`).
+- For exact JSON shapes, example payloads in the earlier sections reflect the entity fields as persisted by the controllers.
 
 ---
 
-## Next steps / suggestions
+Endpoint details (expanded)
 
-- Add explicit DTO mappers (MapStruct or manual mappers) to keep mapping consistent.
-- Add optimistic locking with `@Version` to `ParkingSlot` to handle concurrent allocations.
-- Add pagination, filters, and health endpoints.
-- Harden security for H2 console if using Spring Security (limit to dev profile).
-- Add more integration tests for concurrency scenarios and failure modes.
+This section expands the short descriptions above with explicit parameter details, possible responses (success and error), and example cURL requests you can run from a Windows `cmd.exe` shell (using `curl`).
+
+1) ParkingLotController (`/parkingLots`)
+- POST /parkingLots
+  - Body: full `ParkingLot` JSON (collections may be empty on create)
+  - Success: 201 Created + persisted `ParkingLot` JSON
+  - Errors: 400 Bad Request for invalid JSON or validation failures
+  - Example:
+    curl -X POST "http://localhost:8080/parkingLots" -H "Content-Type: application/json" -d "{\"parkingFloorList\":[],\"entries\":[],\"exits\":[]}"
+
+- GET /parkingLots
+  - Success: 200 OK + list of `ParkingLot`
+
+- GET /parkingLots/{id}
+  - Success: 200 OK + `ParkingLot` JSON
+  - Errors: 404 Not Found if id not present (handled by `EntityNotFoundException` mapping)
+
+- PUT /parkingLots/{id}
+  - Body: `ParkingLot` JSON with updated fields
+  - Success: 200 OK + updated `ParkingLot`
+  - Errors: 404 Not Found / 400 Bad Request
+
+- DELETE /parkingLots/{id}
+  - Success: 204 No Content
+  - Errors: 404 Not Found
+
+2) ParkingFloorController (`/parkingFloors`)
+- POST /parkingFloors?parkingLotId={parkingLotId}
+  - Query: `parkingLotId` required
+  - Body: `ParkingFloor` JSON
+  - Success: 201 Created + persisted `ParkingFloor`
+  - Errors: 404 Not Found if parent lot missing, 400 Bad Request for invalid payload
+  - Example:
+    curl -X POST "http://localhost:8080/parkingFloors?parkingLotId=1" -H "Content-Type: application/json" -d "{\"parkingSlotList\":[]}"
+
+- GET /parkingFloors
+  - Success: 200 OK + list of floors
+
+- GET /parkingFloors/{id}
+  - Success: 200 OK + `ParkingFloor` JSON
+  - Errors: 404 Not Found
+
+- PUT /parkingFloors/{id}
+  - Success: 200 OK + updated `ParkingFloor`
+
+- DELETE /parkingFloors/{id}
+  - Success: 204 No Content
+
+3) ParkingSlotController (`/parkingSlots`)
+- POST /parkingSlots?floorId={floorId}&slotType={VehicleType}&occupied={boolean}
+  - Query params:
+    - `floorId` (Long) required
+    - `slotType` (VehicleType) required: BIKE | CAR | TRUCK
+    - `occupied` (boolean) optional, default false
+  - Success: 201 Created + persisted `ParkingSlot` JSON
+  - Errors: 404 Not Found if `floorId` not found; 400 Bad Request for invalid `slotType`
+  - Example:
+    curl -X POST "http://localhost:8080/parkingSlots?floorId=10&slotType=CAR&occupied=false"
+
+- GET /parkingSlots
+  - Success: 200 OK + list of slots
+
+- GET /parkingSlots/{id}
+  - Success: 200 OK + `ParkingSlot` JSON
+  - Errors: 404 Not Found
+
+- PATCH /parkingSlots/{id}?slotType={slotType}&occupied={occupied}
+  - Use to set `slotType` and/or `occupied` state.
+  - Success: 200 OK + updated `ParkingSlot`
+  - Errors: 400 Bad Request if values invalid, 404 Not Found if id missing
+  - Example:
+    curl -X PATCH "http://localhost:8080/parkingSlots/100?occupied=true"
+
+- DELETE /parkingSlots/{id}
+  - Success: 204 No Content
+
+4) EntryController (`/entry`)
+- POST /entry?strategy={strategy}
+  - Query: `strategy` optional, default `NEAREST`. Supported values: `NEAREST`, `FIRST_AVAILABLE`.
+  - Body: `VehicleDto` JSON:
+    { "vehicleType": "CAR", "vehicleNo": "KA-01-AB-1234" }
+  - Success: 201 Created + `Ticket` JSON. The returned ticket contains references to the allocated `slot` and the `vehicle` entity.
+  - Errors / special cases:
+    - If no slot can be allocated for the vehicle, `TicketService.generateTicket` throws `NoSlotFoundException`. The global exception handler maps this to HTTP 202 Accepted with a response body containing `timestamp`, `status`, `error`, and `message` describing the conflict. (This is how the current code reports allocation conflicts.)
+    - 400 Bad Request for invalid input.
+  - Example:
+    curl -X POST "http://localhost:8080/entry?strategy=FIRST_AVAILABLE" -H "Content-Type: application/json" -d "{\"vehicleType\":\"CAR\",\"vehicleNo\":\"KA-01-AB-1234\"}"
+
+Notes on allocation behavior:
+- Allocation runs inside a transactional service method and uses database-level locking to ensure thread-safe allocation in multi-threaded scenarios. That prevents two concurrent entry requests from receiving the same slot.
+
+5) ExitController (`/exit`)
+- POST /exit?strategy={strategy}
+  - Query: `strategy` optional, default `HOURLY`.
+  - Body: `VehicleDto` JSON (same shape as Entry)
+  - Success: 202 Accepted + `Bill` JSON. Behavior:
+    - Server finds the active `Ticket` for the vehicle, sets `exitTime`, calculates cost via the chosen billing strategy (e.g., `HourlyPriceCalculation`), persists a `Bill`, marks the ticket inactive/closed, and sets the associated `ParkingSlot` `occupied = false`.
+  - Errors:
+    - 404 Not Found if no active ticket exists (handled by `EntityNotFoundException`).
+    - 400 Bad Request for invalid input.
+  - Example:
+    curl -X POST "http://localhost:8080/exit?strategy=HOURLY" -H "Content-Type: application/json" -d "{\"vehicleType\":\"CAR\",\"vehicleNo\":\"KA-01-AB-1234\"}"
+
+6) HomeController (`/api`)
+- GET /api/
+  - Success: 202 Accepted + simple welcome string: "Welcome to Smart Parking Lot"
+  - Example:
+    curl -X GET "http://localhost:8080/api/"
+
+Global error mapping (implemented in `org.airtribe.exception.GlobalExceptionHandler`)
+- `NoSlotFoundException` => HTTP 202 Accepted with JSON body: { timestamp, status, error: "Conflict", message }
+- `EntityNotFoundException` => HTTP 404 Not Found with JSON body: { timestamp, status, error: "Resource Not Found", message }
+- `IllegalArgumentException` => HTTP 400 Bad Request with JSON body: { timestamp, status, error: "Argument you have passed is invalid", message }
 
 ---
 
-If you want, I can:
-- Generate an API Postman collection for the CRUD endpoints,
-- Add example cURL requests to this README,
-- Create or improve integration tests to validate the `ticket.getSlot().setOccupied(false)` exit flow and validate H2 console configuration.
+Concrete response examples and quick cURL flow
 
-Tell me which of those you'd like me to do next and I'll implement it.
+Below are concrete response JSON examples for common endpoints based on the entity shapes in this codebase, and a small sequence of cURL commands (for Windows `cmd.exe`) to exercise a full entry -> exit flow.
+
+A. Concrete response examples
+
+1) Create ParkingLot (POST /parkingLots) — Response 201
+{
+  "id": 1,
+  "parkingFloorList": [],
+  "entries": [],
+  "exits": [],
+  "createdAt": "2026-03-25T09:00:00",
+  "updatedAt": "2026-03-25T09:00:00"
+}
+
+2) Create ParkingFloor (POST /parkingFloors?parkingLotId=1) — Response 201
+{
+  "id": 10,
+  "parkingSlotList": [],
+  "createdAt": "2026-03-25T09:05:00",
+  "updatedAt": "2026-03-25T09:05:00"
+}
+
+3) Create ParkingSlot (POST /parkingSlots?floorId=10&slotType=CAR&occupied=false) — Response 201
+{
+  "id": 100,
+  "slotType": "CAR",
+  "occupied": false,
+  "createdAt": "2026-03-25T09:06:00",
+  "updatedAt": "2026-03-25T09:06:00"
+}
+
+4) Entry (POST /entry?strategy=FIRST_AVAILABLE) — Response 201
+{
+  "id": 500,
+  "slot": { "id": 100, "slotType": "CAR", "occupied": true },
+  "vehicle": { "id": 200, "vehicleType": "CAR", "vehicleNo": "KA-01-AB-1234" },
+  "entryTime": "2026-03-25T09:10:00",
+  "exitTime": null,
+  "bill": null,
+  "isActive": true,
+  "createdAt": "2026-03-25T09:10:00",
+  "updatedAt": "2026-03-25T09:10:00"
+}
+
+5) Exit (POST /exit?strategy=HOURLY) — Response 202
+{
+  "id": 900,
+  "cost": 20.0,
+  "createdAt": "2026-03-25T11:10:00",
+  "updatedAt": "2026-03-25T11:10:00"
+}
+
+Note: After exit completes, the `ParkingSlot` with id 100 will be persisted with `occupied: false`.
+
+B. Quick cURL flow (Windows `cmd.exe`)
+
+1) Create a parking lot
+curl -X POST "http://localhost:8080/parkingLots" -H "Content-Type: application/json" -d "{\"parkingFloorList\":[],\"entries\":[],\"exits\":[]}"
+
+2) Create a floor for the lot (assume returned lot id is 1)
+curl -X POST "http://localhost:8080/parkingFloors?parkingLotId=1" -H "Content-Type: application/json" -d "{\"parkingSlotList\":[]}"
+
+3) Create a CAR slot on floor 10 (assume returned floor id is 10)
+curl -X POST "http://localhost:8080/parkingSlots?floorId=10&slotType=CAR&occupied=false"
+
+4) Vehicle entry (allocates a slot and creates a ticket)
+curl -X POST "http://localhost:8080/entry?strategy=FIRST_AVAILABLE" -H "Content-Type: application/json" -d "{\"vehicleType\":\"CAR\",\"vehicleNo\":\"KA-01-AB-1234\"}"
+
+5) Vehicle exit (calculates bill, frees slot)
+curl -X POST "http://localhost:8080/exit?strategy=HOURLY" -H "Content-Type: application/json" -d "{\"vehicleType\":\"CAR\",\"vehicleNo\":\"KA-01-AB-1234\"}"
+
+---
+
