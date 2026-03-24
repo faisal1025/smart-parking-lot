@@ -1,0 +1,21 @@
+name: creating build by running test cases
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: pull to vm
+        uses: actions/checkout@v6
+
+      - name: run test cases
+        run: ./gradlew build
+

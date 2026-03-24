@@ -1,0 +1,130 @@
+# .gitignore for a Java/Gradle project - ignore generated files and secrets
+
+# Build / Gradle
+.gradle/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Gradle generated sources and caches
+generated/
+generated-sources/
+generated-resources/
+.gradle-cache/
+
+# Maven
+target/
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+*.log
+
+# IDEs
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+
+# Eclipse
+.settings/
+.classpath
+.project
+.factorypath
+.apt_generated
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+.nb-gradle/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime / temporary
+tmp/
+*.tmp
+*.temp
+
+# Logs
+logs/
+*.log
+*.out
+
+# Database files
+*.db
+*.sqlite
+*.mv.db
+*.h2.db
+*.sql
+*.dump
+
+# Keystores / certs / keys (secrets)
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.crt
+*.der
+*.asc
+*.gpg
+
+# Environment files and local configs
+.env
+.env.*
+.env.local
+local.properties
+*.local
+credentials.yml
+credentials.properties
+secrets.properties
+secret-*.properties
+
+# SSH and sensitive user files
+.ssh/
+id_rsa
+id_rsa.pub
+id_*
+
+# Cloud / provider credential files
+*.aws-credentials
+*.azure
+kubeconfig
+.kube/
+
+# Docker
+docker-compose.override.yml
+
+# Generated documentation / reports
+/reports/
+coverage/
+
+# OS-specific metadata
+.idea/
+.vscode/
+*.log
+
+# Ignore compiled test and temporary build artifacts
+**/build/
+**/out/
+
+# Keep exceptions (if you intentionally want to track some generated files, add explicit negation here)
+# Example: keep gradle wrapper jar (already allowed above)
+
+# NOTE:
+# - Be careful about ignoring important tracked files like src/main/resources/application.properties if they're already required in repo.
+# - If you want to ignore local copies of app configuration, add e.g. 'src/main/resources/application-local.properties' and commit an example file 'application.properties.example'.
